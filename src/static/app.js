@@ -17,7 +17,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // Function to fetch activities from API
   async function fetchActivities() {
     try {
-      const response = await fetch("/activities");
+      // Use no-cache to ensure we get the latest activity state from the server
+      const response = await fetch("/activities", { cache: "no-cache" });
       const activities = await response.json();
 
       // Clear loading message and activity select options
@@ -35,7 +36,16 @@ document.addEventListener("DOMContentLoaded", () => {
         // Build participants list HTML
         const participants = Array.isArray(details.participants) ? details.participants : [];
         const participantsHtml = participants.length
-          ? participants.map((p) => `<li>${escapeHtml(p)}</li>`).join("")
+          ? participants
+              .map(
+                (p) =>
+                  `<li class="participant-item"><span class="participant-email">${escapeHtml(
+                    p
+                  )}</span><button class="participant-remove" data-activity="${escapeHtml(
+                    name
+                  )}" data-email="${escapeHtml(p)}" aria-label="Remove participant">🗑️</button></li>`
+              )
+              .join("")
           : '<li class="participants-empty">No participants yet</li>';
 
         activityCard.innerHTML = `
@@ -60,6 +70,35 @@ document.addEventListener("DOMContentLoaded", () => {
         option.textContent = name;
         activitySelect.appendChild(option);
       });
+        // Attach click handler for remove buttons (event delegation would be better but reattach after render)
+        document.querySelectorAll(".participant-remove").forEach((btn) => {
+          btn.addEventListener("click", async (event) => {
+            const activityName = event.currentTarget.getAttribute("data-activity");
+            const email = event.currentTarget.getAttribute("data-email");
+
+            if (!confirm(`Remove ${email} from ${activityName}?`)) return;
+
+            try {
+              const res = await fetch(
+                `/activities/${encodeURIComponent(activityName)}/participants?email=${encodeURIComponent(
+                  email
+                )}`,
+                { method: "DELETE" }
+              );
+
+              const result = await res.json();
+              if (res.ok) {
+                // Refresh activities to reflect change
+                fetchActivities();
+              } else {
+                alert(result.detail || "Failed to remove participant");
+              }
+            } catch (err) {
+              console.error("Error removing participant:", err);
+              alert("Failed to remove participant. See console for details.");
+            }
+          });
+        });
     } catch (error) {
       activitiesList.innerHTML = "<p>Failed to load activities. Please try again later.</p>";
       console.error("Error fetching activities:", error);
@@ -88,8 +127,8 @@ document.addEventListener("DOMContentLoaded", () => {
         messageDiv.className = "success";
         signupForm.reset();
 
-        // Refresh activities so participants list updates
-        fetchActivities();
+        // Refresh activities so participants list updates and wait for it to finish
+        await fetchActivities();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
